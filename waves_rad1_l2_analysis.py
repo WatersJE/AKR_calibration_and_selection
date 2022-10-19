@@ -41,7 +41,7 @@ def get_sweep_datetime(waves_l2, sweep_i):
 
     msec = waves_l2.header[sweep_i]['MSEC_OF_DAY']
 
-    datetime = date + pd.Timedelta(msec, 'milli')
+    datetime = date + pd.Timedelta(msec * 1e-3, 's')
 
     return datetime
 
@@ -61,7 +61,7 @@ def sampled_freqs(l2_obj, n_freqs=32, raise_err=False):
 
     freqs = [np.array([np.int(f) for f in np.sort(np.unique(freqs_i))])
         for freqs_i in freqs]
-    print(len(freqs))
+    # print(len(freqs))
 
     same_freqs = np.zeros(len(freqs))
 
@@ -82,10 +82,36 @@ def sampled_freqs(l2_obj, n_freqs=32, raise_err=False):
 
             return np.array(freqs[0]), same_freqs
 
+        elif np.all(same_freqs[:-1]):
+
+            # print('All but last set of frequencies are the same')
+            # print(same_freqs.shape)
+            # print(len(freqs))
+            # print(freqs[-1])
+
+            return freqs, same_freqs
+
+
         else:
 
-            raise ValueError('Day contains sweeps that sample '
+            print('{} sweeps with frequencies != to first sweep (assumed default 32)'.format(same_freqs.shape[0] - np.sum(same_freqs)))
+            # print(same_freqs)
+            bad_inds = np.where(np.isclose(same_freqs, 0))[0]
+            # print(bad_ind)
+            # print(np.sort(np.unique(l2_obj.data[i]['FREQ'])).shape)
+            # print(freqs[0])
+
+            # 8th MARCH - HAVE CHANGED BAD INDS TO ENTIRE ARRAY
+            # REMEMBER SAME_FREQS IS WRONG, AS DOESN'T CHECK EACH SWEEP
+            #(ONLY SAME AS PREVIOUS - SO EG IF FEW SWEEPS WITH 8 FREQS
+            # THEN THEY ARE KEPT)
+
+            # print(freqs[bad_ind+1])
+            # raise ValueError('Day contains sweeps that sample '
+            #     'different frequencies')
+            print('Day contains sweeps that sample '
                 'different frequencies')
+            return freqs, same_freqs
 
     else:
 
@@ -254,6 +280,10 @@ def convert_sweep_cycle_block(waves_l2, sweep_i):
     except ValueError:
         logging.info('Sweep {} header raised validation flag - see above.'.format(sweep_i))
         sweep_out['sweep_tag'] = 1
+
+    # if sweep_out['sweep_tag'] == 1:
+
+    #     print(sweep_i, sweep_out['data'])
         
     return sweep_out
     
@@ -296,20 +326,20 @@ def check_sweep_cycle(sweep_cycle_dict):
         logging.info('Frequencies sampled with incorrect data acquisition mode')
         raise ValueError()
         
-    # Check X and Z antenna used in SUM mode
-    if not sweep_cycle_dict['ant_config'] == 2:
-        logging.info('X and Z antennae not configured in SUM mode')
-        raise ValueError()
+    # # Check X and Z antenna used in SUM mode
+    # if not sweep_cycle_dict['ant_config'] == 2:
+    #     logging.info('X and Z antennae not configured in SUM mode')
+    #     raise ValueError()
         
-    # Check polarisation present
-    if not sweep_cycle_dict['pol_present'] == 1:
-        logging.info('Polarisation not present for this sweep cycle.')
-        raise ValueError()
+    # # Check polarisation present
+    # if not sweep_cycle_dict['pol_present'] == 1:
+    #     logging.info('Polarisation not present for this sweep cycle.')
+    #     raise ValueError()
 
-    # Check appropriate, longer equatorial antenna used
-    if not sweep_cycle_dict['eq_dipole'] == 1:
-        logging.info('Shorter equatorial plane Y-antenna used')
-        raise ValueError()
+    # # Check appropriate, longer equatorial antenna used
+    # if not sweep_cycle_dict['eq_dipole'] == 1:
+    #     logging.info('Shorter equatorial plane Y-antenna used')
+    #     raise ValueError()
         
     # Check same number of samples per measurement step observed for S and SP
     # as for Z
@@ -356,7 +386,7 @@ def antenna_gain_ratio(date, R_initial=5.,
     return R
 
 
-def concat_l2_sweeps(l2_object, n_sw, log_filename=None):
+def concat_l2_sweeps(l2_object, n_sw, log_filename=None, date=None):
     """
     Convert sweep cycle data object into dataframe for the whole day
     
@@ -392,23 +422,176 @@ def concat_l2_sweeps(l2_object, n_sw, log_filename=None):
 
         if sweep_dict['sweep_tag'] == 0:
 
-            dfs[i] = sweep_df    
+            dfs[i] = sweep_df
+            freqs = np.sort(sweep_dict['data']['FREQ'].unique())
     
         else:
+            print(freqs)
+            freqs = np.loadtxt('default_freq_list.txt')
+            # dfs[i] = None
+            dfs[i] = invalid_sweep_header_dataframe(i,
+                sweep_dict['start_date'], freqs)
 
-            dfs[i] = None
 
-    if np.all([d is None for d in dfs]):
+    # if np.all([d is None for d in dfs]):
+    if np.all([np.all(df['sweep_flag'] == 1) for df in dfs]):
         logging.info('\nAll sweeps for {} are invalid - storing empty dataframe'.format(
             sweep_dict['start_date'].strftime('%d %b %Y (DOY %j)')
         ))
 
-        raise NotImplementedError('Raise error to ensure checking for this'
-            'when calling concat_l2_sweeps, and creating appropriate data'
-            'structure/message.')
+        # raise NotImplementedError('Raise error to ensure checking for this'
+        #     'when calling concat_l2_sweeps, and creating appropriate data'
+        #     'structure/message.')
+        day_df = None
 
     else:
 
         day_df = pd.concat(dfs, axis=0, ignore_index=True)
-    
+        
+        # VALIDATE DATETIMES HERE - SEE `CHECK_L2_VALIDATION.PY`
+        invalid = validate_sweep_dates(day_df, date, n_sw)
+
+        if invalid is not None:
+            # make empty dataframes for each date, with bad sweep flag etc,
+            # then merge in appropriate place in `dfs` list and make `day_df` again
+            bad_sweeps, good_times = invalid
+            # print(bad_sweeps)
+
+            for i, sw_i in enumerate(bad_sweeps):
+
+                dfs[sw_i] = invalid_sweep_header_dataframe(sw_i, good_times[i], freqs)
+
+            day_df = pd.concat(dfs, axis=0, ignore_index=True)
+
     return day_df
+
+
+def validate_sweep_dates(l2_df, file_date, n_sw, sweep_res=183):
+    'copied/modified from check_l2_validation.py'
+
+    def check_against_input_date(check_date, file_date, sweep_res=183):
+        'check first recorded sweep datetime against the input (file) datetime'
+
+        min_check = file_date - pd.Timedelta(sweep_res, 's')
+        max_check = file_date + pd.Timedelta(sweep_res, 's')
+
+        if (check_date > min_check) or \
+            (check_date < max_check):
+            
+            return True
+
+        else:
+            
+            return False
+
+    def check_subsequent_sweeps(check_date, prev_date, first_sweep_date,
+        sweep_res=183):
+        'check sweep date against date of previous sweep to check if sensible'
+
+        max_date = first_sweep_date.round('D') + pd.Timedelta(1, 'D')
+
+        if ((check_date > prev_date) and
+            (check_date < (max_date + pd.Timedelta(sweep_res, 's')))):
+            
+            return True
+
+        else:
+
+            return False
+
+    sweep_times = l2_df.groupby('SWEEP').agg({'sweep_start_date': np.min})['sweep_start_date']
+    sweep_times = sweep_times.reset_index()
+    
+    # print(sweep_times.shape)
+    # print(n_sw)
+    # print(l2_df['SWEEP'].unique().shape[0])
+
+    # check first sweep datetime
+    check_consec_sweeps = np.zeros(sweep_times.shape[0])
+    #iteratively check initial sweep datetimes against input datetime
+    check_first = False
+    i = 0
+    while not check_first:
+
+        # if i < sweep_times.shape:
+        index = sweep_times.index[i]
+        dt_check = sweep_times.loc[index, 'sweep_start_date']
+        check_first = check_against_input_date(dt_check, file_date)
+        # print(i, check_first)
+        check_consec_sweeps[i] = int(check_first)
+        i = i+1 if not check_first else i
+        # else:
+        #     check_first = True
+        # print(i)
+
+    ref_dt = sweep_times.loc[index, 'sweep_start_date']
+    check_consec_sweeps[i+1:] = [check_subsequent_sweeps(
+            dt_1, dt_0, ref_dt)
+        for dt_0, dt_1 in zip(
+            sweep_times.loc[sweep_times.index[i:-1], 'sweep_start_date'],
+            sweep_times.loc[sweep_times.index[i+1:], 'sweep_start_date'])]
+
+    # the below two should be equivalent, if have # sweeps = n_sw
+    false_inds = np.where(check_consec_sweeps == 0)[0]
+    false_sweeps = sweep_times.loc[false_inds, 'SWEEP'].values
+    
+    sweep_times = np.array([
+        pd.to_datetime(t) for t in sweep_times['sweep_start_date'].values],
+        dtype=pd.Timestamp)
+
+    if false_sweeps.size > 0:
+
+        initial_date = file_date.round('D') - pd.Timedelta(sweep_res // 2, 's')
+        compare_sweep_times = np.concatenate([[initial_date], sweep_times])
+
+        good_times = [compare_sweep_times[i] + pd.Timedelta(1e3 * (sweep_res+0.154), 'milli')
+            for i in false_sweeps]
+
+        # for i, sw_i in enumerate(false_sweeps):
+        #     print(sweep_times[sw_i])
+        #     print(sweep_times[sw_i-1], good_times[i])
+
+        # print(compare_sweep_times.shape)
+        # print(sweep_times.shape)
+        # print(false_sweeps.shape)
+        # print(len(good_times))
+        # print(good_times)
+        return false_sweeps, good_times
+
+
+    else:
+
+        return None
+
+
+def invalid_sweep_header_dataframe(sweep_i, sweep_start_date, freqs, sweep_res=183,
+    n_freqs=32, default_freqs='default_freq_list.txt'):
+
+    # 15 March - now freqs have to be passed explicitly
+    # freqs = np.loadtxt(default_freqs)
+    print(freqs.shape)
+    print(freqs)
+    dates = pd.date_range(sweep_start_date,
+        sweep_start_date + pd.Timedelta(sweep_res, 's'),
+        periods=n_freqs)
+
+    nan_meas = np.repeat(np.nan, n_freqs)
+
+    sweep_i_data = np.repeat(sweep_i, n_freqs)
+    
+    sweep_flag_data = np.repeat(1, n_freqs)
+
+    df = pd.DataFrame({
+        'FREQ': freqs,
+        'DATETIME_Z': dates,
+        'sweep_start_date': np.repeat(sweep_start_date, n_freqs),
+        'SWEEP': sweep_i_data,
+        'sweep_flag': sweep_flag_data,
+        'AMPL_Z': nan_meas,
+        'AMPL_S': nan_meas,
+        'AMPL_SP': nan_meas
+    })
+
+    # print(df)
+
+    return df

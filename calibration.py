@@ -34,6 +34,10 @@ def add_position(source_df, source_dt_label,
 
     target_df = unix_time(target_df, dt_label=target_dt_label)
 
+    print_minmax = lambda df: print(df['unix'].min(), df['unix'].max())
+    print_minmax(source_df)
+    print_minmax(target_df)
+
     for label in source_data:
 
         func = interpolate.interp1d(source_df['unix'], source_df[label])
@@ -100,9 +104,16 @@ def calibrate_z(power, latitude):
     return flux
 
 
-def calibration(spin_df, dt_label='DATETIME_Z'):
+def calibration(spin_df, dt_label='DATETIME_Z', year=None):
 
-    eph_data = '../data/ephemerises/wind_ephemeris_45s_1999doy001_365_wGSE.csv'
+    if year is None:
+        eph_data = '/data/jw27g13/ephemeris/wind_ephemeris_45s_2003.csv'
+    else:
+        # eph_data = '/data/jw27g13/ephemeris/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
+        # eph_data = '../../data/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
+        # eph_data = '../../../collaboration/CBriand_SolarActivity_Comparison_VLF/data/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
+        eph_data = '../data/ephemeris/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
+        
     eph_df = pd.read_csv(eph_data, parse_dates=['Epoch'])
 
     spin_df = add_position(eph_df, 'Epoch',
@@ -132,11 +143,9 @@ def contiguous_sweep_datetimes(l3_df, sweep_label, dt_label,
     
     # get ideal number of sweeps for the period in the data, given sweep_period
     # in seconds
-    n_ideal_sw = np.ceil((dates[-1] - dates[0]).seconds / sweep_period)
+    n_ideal_sw = np.ceil((dates[-1] - dates[0]).total_seconds() / sweep_period)
 
     dtimes = pd.date_range(dates[0], dates[-1], periods=n_ideal_sw)
-
-    print(dtimes, n_ideal_sw)
 
     if not return_original:
         return dtimes
@@ -144,7 +153,7 @@ def contiguous_sweep_datetimes(l3_df, sweep_label, dt_label,
         return dates, dtimes
 
 
-def ft_array(csv_df, param_label):
+def ft_array(csv_df, param_label, set_zero_nan=True, zero=True):
     """
     Create 2D array corresponding to frequency-time spectrogram of `param_label`
 
@@ -158,26 +167,35 @@ def ft_array(csv_df, param_label):
 
     sweep_dates, ideal_dates = contiguous_sweep_datetimes(csv_df, sweep_label, dt_label,
         return_original=True)
+    # print(sweep_dates.shape)
 
     # Store indices for sweeps that correspond to datetime position in array
     sweep_array_inds = np.array([pd.Index(ideal_dates).get_loc(d, method='nearest')
         for d in sweep_dates])
+    # print(sweep_array_inds.shape)
 
     freqs = np.sort(csv_df[freq_label].dropna().unique())
     
     # array for sampled frequency range and sweep cycles
-    out_array = np.zeros((freqs.shape[0], int(ideal_dates.shape[0])))
-    
+    if zero:
+        out_array = np.zeros((freqs.shape[0], int(ideal_dates.shape[0])))
+    else:
+        out_array = np.ones((freqs.shape[0], int(ideal_dates.shape[0])))
     # Filling array with sampled frequency means
     for arr_i, (_, sweep_df) in zip(sweep_array_inds,
         csv_df.groupby(sweep_label)):
 
+        # print(arr_i, sweep_df['SWEEP'].unique())
+
+
         # groupby to average parameters
-        parameter_mean = sweep_df.groupby(freq_label).agg({param_label: 'mean'})
+        parameter_mean = sweep_df.groupby(freq_label).agg({param_label: np.nanmean})
 
         # apparently no need to manually flip - first output shows
         # upside-down spectra
         means = parameter_mean[param_label].values
+        # if np.all(sweep_df['sweep_flag'] == 1):
+        #     print(means.shape)
 
         # assuming array sizes less than n_freqs have missing vales/erroneous
         # sweeps, so set to NaN
@@ -187,10 +205,14 @@ def ft_array(csv_df, param_label):
         # out_array[:, int(sw_i)] = flipped_means
         out_array[:, arr_i] = means
 
-    
+        # if np.all(sweep_df['sweep_flag'] == 1):
+        #     print(sweep_df.loc[:, ['SWEEP', 'sigma_z']])
+        #     print(sweep_df.shape)
 
-    # prevent division by 0 in colorbar
-    out_array = np.where(np.isclose(out_array, 0., atol=1e-31), np.nan, out_array)
+    
+    if set_zero_nan:
+        # prevent division by 0 in colorbar
+        out_array = np.where(np.isclose(out_array, 0., atol=1e-31), np.nan, out_array)
     # print(np.min(out_array))
     # print(np.nanmin(out_array))
     # print(np.max(out_array))
@@ -201,19 +223,28 @@ def ft_array(csv_df, param_label):
 
 
 def create_calibrated_flux_dataframe(data,
-    flux_label='flux_si', out_flux_label='flux_si'):
+    flux_label='flux_si', out_flux_label='flux_si', sweep_label='SWEEP'):
     """
     Mostly identical to create_selected... but for calibrated data only
 
     Takes 3 minute arrays of SNR and sigma_z also
     """
-    flux = ft_array(data, flux_label)
-    snr = ft_array(data, 'SNR_dB')
-    sigma_z = ft_array(data, 'sigma_z')
+    # NEW 14TH MARCH 
+    # (setting freqs only as those from non-flagged data made arrays
+    # different lengths - error on out_df creation)
+    # data = data.loc[data['sweep_flag'] == 0, :]
 
-    dtimes = contiguous_sweep_datetimes(data,
-        'SWEEP', 'DATETIME_Z')
+    flux = ft_array(data, flux_label)
+    snr = ft_array(data, 'SNR_dB', set_zero_nan=False)
+    sigma_z = ft_array(data, 'sigma_z', set_zero_nan=False)
+
+    sweep_flag = ft_array(data, 'sweep_flag', set_zero_nan=False, zero=False)
+
+    real_dtimes, out_dtimes = contiguous_sweep_datetimes(data,
+        'SWEEP', 'DATETIME_Z', return_original=True)
     freqs = np.sort(data['FREQ'].unique())
+    # NEW 11TH MARCH - PREVENT WEIRD FREQUENCIES?
+    # freqs = np.sort(data.loc[data['sweep_flag'] == 0, 'FREQ'].unique())
 
     series_length = flux.shape[0] * flux.shape[1]
     print(series_length) 
@@ -223,7 +254,7 @@ def create_calibrated_flux_dataframe(data,
 
     # get appropriate list of frequencies for output dataframe
     df_freqs = np.array(np.tile(freqs, n_spectra), dtype=np.float64)
-
+    print(df_freqs.shape[0])
     n_freqs = flux.shape[0]
 
     # flatten all 3-minute ft arrays
@@ -233,10 +264,24 @@ def create_calibrated_flux_dataframe(data,
 
     sigma_z = pd.Series(sigma_z.flatten(order='F'))
 
+    sweep_flag = pd.Series(sweep_flag.flatten(order='F'))
+
     # get indexes for each spectrum, assigned to data from each frequency
     spectrum_i = np.repeat(np.arange(n_spectra), n_freqs)
+    # 15th March - so not to overlap with bad sweep nos from L2 data
+    # spectrum_i = np.repeat(data['SWEEP'].unique(), n_freqs)
+    # 15th March - using original, as no problem with overlap if don't concat bad_dfs
+    # (Now using the empty spectra of ft_array output to infer bad sweeps...)
 
-    dtimes = np.repeat(dtimes, n_freqs)
+    # dtimes = np.repeat(dtimes, n_freqs) # old - `dtimes` was the list of "fake" dts
+    # dtimes = np.repeat(real_dtimes, n_freqs) # 15 March - actual min sweep times of "good" sweeps
+    dtimes = np.repeat(out_dtimes, n_freqs) # 15 March - fake times of all sweeps - including empty spectra created in ft_array calls
+
+    # if data['sweep_flag'].unique().shape[0] > 1:
+    #     raise ValueError("Multiple values for sweep flag")
+    # else:
+        # sweep_flag = data['sweep_flag'].unique()[0]
+        
 
     df_dict = {
         'freq': df_freqs,
@@ -244,7 +289,8 @@ def create_calibrated_flux_dataframe(data,
         'spectrum_i': spectrum_i,
         'snr_db': snr,
         'sigma_z': sigma_z,
-        out_flux_label: flux}
+        out_flux_label: flux,
+        'sweep_flag': sweep_flag}
 
     out_df = pd.DataFrame(df_dict)
 

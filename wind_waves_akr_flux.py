@@ -25,17 +25,44 @@ def default_freqs():
     return freqs
 
 
+def invalid_l3_sweep_dataframe(sweep_start_date, sweep_i,
+    default_freqs='default_freq_list.txt'):
+
+    freqs = np.loadtxt(default_freqs)
+
+    n_freqs = freqs.shape[0]
+
+    dates = np.repeat(sweep_start_date, n_freqs)
+
+    nan_meas = np.repeat(np.nan, n_freqs)
+
+    sweep_i_data = np.repeat(sweep_i, n_freqs)
+
+    # don't need to set NaN explicitly as will be added for any missing columns
+    df = pd.DataFrame({
+        # 'FREQ': freqs,
+        'freq': freqs,
+        # 'DATETIME_Z': dates,
+        'datetime_ut': dates,
+        # 'SWEEP': sweep_i_data,
+        'spectrum_i': sweep_i_data,
+        # 'SNR_dB': nan_meas,
+        # 'AMPL_Z': nan_meas,
+        'sweep_flag': np.repeat(1, n_freqs)
+    })
+
+    return df
+
+
+
 def process_l2(date, data_dir):
     """
     Read L2 data file and concatenate observations into dataframe for whole day
 
     """
-
-    if isinstance(date, pd.Timestamp):
-
-        date = date.strftime('%Y%m%d')
-
-    l2_fp = os.path.join(data_dir, filename.format(date))
+    
+    filename = 'wi_wa_rad1_l2_{}_v01.dat'.format(date.strftime('%Y%m%d'))
+    l2_fp = os.path.join(data_dir, filename)
 
     l2_obj, n_sw = read_wind_waves_l2.read_l2_hres(l2_fp, False)
 
@@ -44,75 +71,101 @@ def process_l2(date, data_dir):
     elif isinstance(date, str):
         date_str = date
 
-    # CHECK VALIDATION
-    # create and store empty dataframe in event that all sweeps are None
-    # (NotImplementedError raised in this case - use try except)
-    try:
-        l2_df = l2.concat_l2_sweeps(l2_obj, n_sw,
-            log_filename=os.path.join(
-                data_dir, 'L2_validation_{}.log'.format(date_str)))
-    except NotImplementedError:
-        # create empty data
-        return None
+    l2_df = l2.concat_l2_sweeps(l2_obj, n_sw,
+        log_filename=os.path.join(
+            data_dir, 'L2_validation_{}.log'.format(date_str)),
+        date=date)
 
-    # calculate spin normalised standard deviation of spin-axis antenna
-    orig_power = l2_df.loc[:, 'AMPL_Z']
+    # new flagged data handling (17/5)
+    if l2_df is None:
 
-    metric = lambda p_z: np.std(p_z) / np.mean(p_z)
+        spin_df = None
+        bad_dfs = None
 
-    sigma_z = orig_power.groupby(orig_power.index // 8).apply(metric)
-
-    # calculate background
-    bg_df = background.new_background_file(l2_df)
-
-    snr_avgs = np.zeros(l2_df.shape[0] // 8)
-
-    # calculate SNR
-    for i, spin_df in l2_df.groupby(l2_df.index // 8):
-
-        # assign info vars
-        power = spin_df['AMPL_Z']
-        freq = spin_df['FREQ'].unique()[0]
+    else:
         
-        snr_avgs[i] = snr.snr_average(bg_df, power, freq, 'Z')
+        # select flagged data
+        flagged = l2_df.loc[l2_df['sweep_flag'] == 1, :]
 
-    # 9th March 2021
-    # now subtract background
-    for i, f in enumerate(
-        np.sort(l2_df['FREQ'].dropna().unique())):
+        if not flagged.empty:
 
-        subdf = l2_df.loc[l2_df['FREQ'] == f, :]
+            bad_sw_times = flagged['sweep_start_date'].unique()
+            bad_sw = flagged['SWEEP'].unique()
 
-        subdf['AMPL_Z'] = background.subtract_background(
-            bg_df, subdf['AMPL_Z'], f, 'Z'
-        )
+            # make empty (NaN where relevant) data structures appropriate for L3 CSV
+            bad_dfs = [invalid_l3_sweep_dataframe(t, i) for t, i in zip(
+                bad_sw_times, bad_sw
+            )]
 
-        l2_df.loc[l2_df['FREQ'] == f, 'AMPL_Z'] = subdf['AMPL_Z']
+            # store in list, then can test adding to big dataframe (`out_df`) at end
+            #    try sorting by sweep_i first
 
-    # Select cols to retain - make dataframe of spin averages and sigma_z
-    keep_cols = ['FREQ', 'AMPL_Z', 'DATETIME_Z', 'SWEEP', 'sweep_flag']
+            # l2_df -> l2_df without flagged data for later processing 
+            l2_df = l2_df.loc[l2_df['sweep_flag'] == 0, :]
+            l2_df = l2_df.reset_index(drop=True)
 
-    spin_df = l2_df.loc[l2_df.index[::8], keep_cols]
+        else:
 
-    spin_df = spin_df.reset_index()
+            bad_dfs = None
 
-    spin_df['SNR_dB'] = snr_avgs
+        # calculate spin normalised standard deviation of spin-axis antenna
+        orig_power = l2_df.loc[:, 'AMPL_Z']
 
-    # Remove RFI-contaminated channel (52 kHz)
-        # (See later - for the time being just set 52 kHz 
-        # to NaN at end)
-    # spin_df = remove_rfi(spin_df, 52)
+        metric = lambda p_z: np.std(p_z) / np.mean(p_z)
 
-    z_power = l2_df.loc[:, 'AMPL_Z']
+        sigma_z = orig_power.groupby(orig_power.index // 8).apply(metric)
 
-    # average over spins
-    ampl_z = z_power.groupby(z_power.index // 8).apply(np.mean)
+        # calculate background
+        bg_df = background.new_background_file(l2_df)
 
-    spin_df['AMPL_Z'] = ampl_z
+        snr_avgs = np.zeros(l2_df.shape[0] // 8)
 
-    spin_df['sigma_z'] = sigma_z
+        # calculate SNR
+        for i, spin_df in l2_df.groupby(l2_df.index // 8):
 
-    return spin_df
+            # assign info vars
+            power = spin_df['AMPL_Z']
+            freq = spin_df['FREQ'].unique()[0]
+            
+            snr_avgs[i] = snr.snr_average(bg_df, power, freq, 'Z')
+
+        # 9th March 2021
+        # now subtract background
+        for i, f in enumerate(
+            np.sort(l2_df['FREQ'].dropna().unique())):
+
+            subdf = l2_df.loc[l2_df['FREQ'] == f, :]
+
+            subdf['AMPL_Z'] = background.subtract_background(
+                bg_df, subdf['AMPL_Z'], f, 'Z'
+            )
+
+            l2_df.loc[l2_df['FREQ'] == f, 'AMPL_Z'] = subdf['AMPL_Z']
+
+        # Select cols to retain - make dataframe of spin averages and sigma_z
+        keep_cols = ['FREQ', 'AMPL_Z', 'DATETIME_Z', 'SWEEP', 'sweep_flag']
+
+        spin_df = l2_df.loc[l2_df.index[::8], keep_cols]
+
+        spin_df = spin_df.reset_index(drop=True)
+
+        spin_df['SNR_dB'] = snr_avgs
+
+        # Remove RFI-contaminated channel (52 kHz)
+            # (See later - for the time being just set 52 kHz 
+            # to NaN at end)
+        # spin_df = remove_rfi(spin_df, 52)
+
+        z_power = l2_df.loc[:, 'AMPL_Z']
+
+        # average over spins
+        ampl_z = z_power.groupby(z_power.index // 8).apply(np.mean)
+
+        spin_df['AMPL_Z'] = ampl_z
+
+        spin_df['sigma_z'] = sigma_z
+
+    return spin_df, bad_dfs
 
 
 def normalise_flux(flux, rad_dist, target='Earth'):
@@ -182,7 +235,7 @@ def select_akr(df, select_label, out_label,
     return df
 
 
-def generate_empty_dataframe():
+def generate_empty_dataframe(date):
     n_spectra = 475
 
     freqs = default_freqs()
@@ -206,7 +259,8 @@ def generate_empty_dataframe():
             'datetime_ut': dtimes,
             'spectrum_i': spectrum_i,
             'akr_flux_si_1au': np.repeat(np.nan, freqs.shape[0]),
-            'snr_db': np.repeat(np.nan, freqs.shape[0])}
+            'snr_db': np.repeat(np.nan, freqs.shape[0]),
+            'sweep_flag': np.repeat(1, freqs.shape[0])}
 
     df = pd.DataFrame(df_dict)
 
@@ -214,22 +268,34 @@ def generate_empty_dataframe():
 
 
 def main(date, version='01',
-    save_calibrated_data=False):
+    save_calibrated_data=False, return_out=False):
+    print(date)
 
-    datadir = '../data/wind_waves_l2_hres/1999'
+    # datadir = '/data/jw27g13/wind_rad1_l2_hres/{}'.format(date.strftime('%Y'))
+    datadir = '../data/l2'
+    # datadir = '../../data'
+    # 22/04 - for new 2022 data for C Briand
+    # datadir = '../../../collaboration/CBriand_SolarActivity_Comparison_VLF/data/wind_l2'
     
     # calls waves_rad1_l2_analysis (externally)
-    spin_df = process_l2(date, datadir)
+    spin_df, invalid_dfs = process_l2(date, datadir)
+    print(spin_df['FREQ'].unique().shape[0])
+    # print(spin_df)
+    # print(spin_df.loc[(spin_df['SWEEP'] == 329) | (spin_df['SWEEP'] == 334), :])
+    # print(spin_df.loc[(spin_df['SWEEP'] == 331) | (spin_df['SWEEP'] == 336), :])
+    # print(invalid_dfs)
+    # raise NotImplementedError
 
     if spin_df is None:
+        print('Generating empty data for day')
         # all data invalidated - generate empty dataframe
-
-        out_df = generate_empty_dataframe()
-
+        out_df = generate_empty_dataframe(date)
+    
     else:
         
-        flux_df = cal.calibration(spin_df)
+        flux_df = cal.calibration(spin_df, year=date.strftime('%Y'))
         print(flux_df.columns)
+        print(flux_df['FREQ'].unique().shape[0])
         
         flux_label = 'flux_si'
 
@@ -238,7 +304,7 @@ def main(date, version='01',
             # 3 minute resolution dataframe with calibrated flux
             out_flux_df = cal.create_calibrated_flux_dataframe(flux_df, flux_label)
             
-            calibrated_data_file = '../data/calibrated_data/final/1999'
+            calibrated_data_file = '../data/l3/Maunder_version/calibrated'
 
             calibrated_flux_fp = 'wi_wa_rad1_l3_no_selection_{}.csv'.format(
                 date.strftime('%Y%m%d'),
@@ -253,29 +319,72 @@ def main(date, version='01',
 
         # normalise data (Wind to 1 AU for comparison)
         flux_df['flux_si_1au'] = normalise_flux(flux_df['flux_si'], flux_df['RADIUS'])
-
+        print(flux_df.columns)
+        print(flux_df['FREQ'].unique().shape[0])
         flux_label = 'flux_si_1au'
 
-        out_df = cal.create_calibrated_flux_dataframe(flux_df, flux_label, flux_label)
+        # # NEW VALIDATION
+        # if invalid_dfs is not None:
+        #     for df in invalid_dfs:
+        #         print(df.describe())
+        #     # print(flux_df.shape)
+        #     flux_df = pd.concat(invalid_dfs + [flux_df], ignore_index=True)
+        #     flux_df = flux_df.reset_index(drop=True)
 
+        #     # print(flux_df.head(100))
+
+        #     flagged = flux_df.loc[flux_df['sweep_flag'] == 1, :]
+
+        #     # for i, df in flagged.groupby('SWEEP'):
+
+        #     #     print(df.head())
+
+        #     # print(flux_df.shape)
+
+        #     flux_df = flux_df.sort_values('SWEEP')
+        #     flux_df = flux_df.reset_index(drop=True)
+            
+        #     flagged = flux_df.loc[flux_df['sweep_flag'] == 1, :]
+
+        #     # for i, df in flagged.groupby('SWEEP'):
+
+        #     #     print(df.head())
+            
+        #     # print(flux_df.head(100))
+            
+        # # raise NotImplementedError("See notes from end of 17th May")
+        # above - double-commented - is older cause of 39 frequencies
+        # just the grouping and selection of empty spectra should be enough now!
+        out_df = cal.create_calibrated_flux_dataframe(flux_df, flux_label, flux_label)
+        print(out_df['freq'].unique().shape[0])
         # now selection on sigma_z        
         out_df = select_akr(out_df, flux_label, 'akr_flux_si_1au')
 
         print(out_df.columns)
 
+
+    #
+    # print(out_df)
     # Save output
-    out_dir = '../data/masked_flux/1999'
+    # out_dir = '/data/jw27g13/wind_rad1_l3/2022_new_pipeline_validation'
+    out_dir = '../data/l3/Maunder_version'
     
     out_fn = 'wi_wa_rad1_l3_akr_{}_v{}.csv'.format(date.strftime('%Y%m%d'),
         version)
 
-    keep_cols = ['datetime_ut', 'freq', 'snr_db', 'akr_flux_si_1au']
+    keep_cols = ['datetime_ut', 'freq', 'snr_db', 'akr_flux_si_1au', 'sweep_flag']
     out_df = out_df.loc[:, keep_cols]
+    print(out_df['freq'].unique().shape[0])
 
     fp = os.path.join(out_dir, out_fn)
     out_df.to_csv(fp, na_rep='-1', index=False)
 
-    return None
+    if return_out:
+        return out_df
+    else:
+        return None
+
+
 
 if __name__ == "__main__":
 
