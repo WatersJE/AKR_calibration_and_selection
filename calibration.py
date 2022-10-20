@@ -109,9 +109,7 @@ def calibration(spin_df, dt_label='DATETIME_Z', year=None):
     if year is None:
         eph_data = '/data/jw27g13/ephemeris/wind_ephemeris_45s_2003.csv'
     else:
-        # eph_data = '/data/jw27g13/ephemeris/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
-        # eph_data = '../../data/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
-        # eph_data = '../../../collaboration/CBriand_SolarActivity_Comparison_VLF/data/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
+        
         eph_data = '../data/ephemeris/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
         
     eph_df = pd.read_csv(eph_data, parse_dates=['Epoch'])

@@ -271,20 +271,11 @@ def main(date, version='01',
     save_calibrated_data=False, return_out=False):
     print(date)
 
-    # datadir = '/data/jw27g13/wind_rad1_l2_hres/{}'.format(date.strftime('%Y'))
     datadir = '../data/l2'
-    # datadir = '../../data'
-    # 22/04 - for new 2022 data for C Briand
-    # datadir = '../../../collaboration/CBriand_SolarActivity_Comparison_VLF/data/wind_l2'
     
     # calls waves_rad1_l2_analysis (externally)
     spin_df, invalid_dfs = process_l2(date, datadir)
     print(spin_df['FREQ'].unique().shape[0])
-    # print(spin_df)
-    # print(spin_df.loc[(spin_df['SWEEP'] == 329) | (spin_df['SWEEP'] == 334), :])
-    # print(spin_df.loc[(spin_df['SWEEP'] == 331) | (spin_df['SWEEP'] == 336), :])
-    # print(invalid_dfs)
-    # raise NotImplementedError
 
     if spin_df is None:
         print('Generating empty data for day')
@@ -362,11 +353,6 @@ def main(date, version='01',
 
         print(out_df.columns)
 
-
-    #
-    # print(out_df)
-    # Save output
-    # out_dir = '/data/jw27g13/wind_rad1_l3/2022_new_pipeline_validation'
     out_dir = '../data/l3/Maunder_version'
     
     out_fn = 'wi_wa_rad1_l3_akr_{}_v{}.csv'.format(date.strftime('%Y%m%d'),
@@ -374,7 +360,6 @@ def main(date, version='01',
 
     keep_cols = ['datetime_ut', 'freq', 'snr_db', 'akr_flux_si_1au', 'sweep_flag']
     out_df = out_df.loc[:, keep_cols]
-    print(out_df['freq'].unique().shape[0])
 
     fp = os.path.join(out_dir, out_fn)
     out_df.to_csv(fp, na_rep='-1', index=False)
