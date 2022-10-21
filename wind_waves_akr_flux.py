@@ -271,7 +271,7 @@ def main(date, version='01',
     save_calibrated_data=False, return_out=False):
     print(date)
 
-    datadir = '../data/l2'
+    datadir = '../../data/l2'
     
     # calls waves_rad1_l2_analysis (externally)
     spin_df, invalid_dfs = process_l2(date, datadir)
@@ -295,7 +295,7 @@ def main(date, version='01',
             # 3 minute resolution dataframe with calibrated flux
             out_flux_df = cal.create_calibrated_flux_dataframe(flux_df, flux_label)
             
-            calibrated_data_file = '../data/l3/Maunder_version/calibrated'
+            calibrated_data_file = '../../data/l3/Maunder_version/calibrated'
 
             calibrated_flux_fp = 'wi_wa_rad1_l3_no_selection_{}.csv'.format(
                 date.strftime('%Y%m%d'),
@@ -353,7 +353,7 @@ def main(date, version='01',
 
         print(out_df.columns)
 
-    out_dir = '../data/l3/Maunder_version'
+    out_dir = '../../data/l3/Maunder_version'
     
     out_fn = 'wi_wa_rad1_l3_akr_{}_v{}.csv'.format(date.strftime('%Y%m%d'),
         version)
