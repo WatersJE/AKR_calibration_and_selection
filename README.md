@@ -34,3 +34,64 @@ With filepaths specified, the pipeline can be run from the command line with a c
 * `pandas`
 * `spacepy`
 
+## Installation
+
+Notes and to do:
+
+* git clone etc - describe installation
+* include example scripts for running program
+* simplest regression test needs to involve single L2 file -> L3 output
+* how is ephemeris that has been used retrieved? (SPDF etc) - needs description - what to retrieve etc, how stored/expected to be read
+
+  * The download of ephemeris could be automatic in the script - future
+
+* remove 'version' from cmd line argument - this indicates the versionof the prorgam itself, so should be set witin program
+
+* If wanted to store large cdf for all Wind ephemeris in repository - can use git LFS for large files - but description needed for ephemeris whichever solution used
+
+- baptiste will fork repo and include files for eg date to test
+- provide ephemeris file and expected output for eg date (20000101)
+
+- CDF file creation - VESPA attributes for scalemin/max relates to plotting and colorbar scales - should be representative of all data
+
+## Retrieving Wind Ephemeris
+
+* Visit the [NASA SPDF spacecraft locator form](https://sscweb.gsfc.nasa.gov/cgi-bin/Locator.cgi) and complete with the following:
+
+### Required Settings
+#### Spacecraft/Time Range Selection
+* In panel "Satellites" choose Wind. Set the relevant time range (note both inclusive)
+* Note that L2 files often contain spectra that are measured in the day preceding the one labelled by the L2 file - so ephemeris data from the previous day will be required
+* for e.g. 1st Jan 2000:
+  *  Start Time: 1999/12/31
+  *  Stop Time:	2000/01/01
+
+
+#### Output Options
+ 
+* For the purposes of the pipeline, only the GSE latitude and the radial distance from Earth are required - from the output options screen select at least the following:
+   * "GSE LAT" in main options
+   * "Radial Distance" under values in additional options
+
+### Optional Settings
+#### Output Format and Units Options   
+
+* Select date format *(need to insure suggestion here works with date parser in pipeline)*
+  * Ensure time selected to second resolution e.g. hh:mm:ss
+ 
+* Choose "Earth Radii" (default) for the Distance units, with $\geq$ 2 decimal places
+
+* Degrees Format, Direction/Range can both be kept as default values (-dd.ddd... with 2 decimal places; Lat (-90,+90), Long(0,360) respectively)
+
+* Choose "Text" for Output Format Options
+
+### Input Summary
+The data selection can be checked via the Input Summary page
+
+### Execution Options
+Use these buttons to access the data.
+
+*For now - will need to save the ephemeris file in a place and specify the filepath specifically in calibration.py.*
+
+*Check also that the csv file saved with default text headers etc reads without trouble (as determined by the read_csv call in calibration.py)*
+	
