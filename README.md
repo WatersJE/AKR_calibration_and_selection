@@ -1,6 +1,6 @@
 # Wind/Waves AKR Calibration and Selection Pipeline
 
-This simple pipeline takes L2 raw Wind/Waves RAD1 data, performs a full calibration assuming an AKR source in the direction of Earth, and selects and retains data that meets a numerical threshold based on the variability of the spin signal. Full details of the calibration and selection can be found in _(DOI)_. This documentation describes the scripts and relevant inputs and data needed to process L2 binary data in this way.
+This simple pipeline takes L2 raw Wind/Waves RAD1 data, performs a full calibration assuming an AKR source in the direction of Earth, and selects and retains data that meets a numerical threshold based on the variability of the spin signal. Full details of the calibration and selection can be found in [Waters et al. (2021)](https://onlinelibrary.wiley.com/doi/10.1029/2021JA029425). This documentation describes the scripts and relevant inputs and data needed to process L2 binary data in this way.
 
 The repository is self-contained, but requires Wind ephemeris data (namely GSE latitude and radial distance from Earth) as well as L2 data for the relevant observations. **The filepaths for this data should be changed manually in the following files _(cmd line args in future)_:** 
 
@@ -16,7 +16,7 @@ With filepaths specified, the pipeline can be run from the command line with a c
 * `wind_waves_akr_flux.py` - the main program that creates a .csv file of masked AKR data for a single L2 binary file - corresponding to a 24 hour observation. After changing relevant input (L2 binary data, ephemeris) and output (L3 .csv file) filepaths, this can be run from the terminal with the date (YYYYMMDD) and version (?) as follows:
 	`python3 wind_waves_akr_flux.py 20000101 01`
 
-* `waves_rad1_l2_analysis.py` - data manipulation and validation routines. Mostly helper functions. 
+* `waves_rad1_l2_analysis.py` - data manipulation and validation routines. Mostly helper functions.
 
 * `background.py` - routines for creating background spectra for substraction prior to calibration
 
@@ -76,8 +76,9 @@ Notes and to do:
 ### Optional Settings
 #### Output Format and Units Options   
 
-* Select date format *(need to insure suggestion here works with date parser in pipeline)*
-  * Ensure time selected to second resolution e.g. hh:mm:ss
+* Select date format as follows
+  * "Date": Choose yy/mm/dd
+  * "Time": Choose hh:mm:ss
  
 * Choose "Earth Radii" (default) for the Distance units, with $\geq$ 2 decimal places
 
