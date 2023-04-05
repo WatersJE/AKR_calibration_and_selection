@@ -20,7 +20,7 @@ With filepaths specified, the pipeline can be run from the command line with a c
 
 * `background.py` - routines for creating background spectra for substraction prior to calibration
 
-* `calibration.py` - routines for calibration and further data manipulation. Requires manual change to filepath for ephemeris data _(change to control by cmd input)_. Needs specific csv file and data labels at present.
+* `calibration.py` - routines for calibration and other relevant data processing. 
 
 * `snr.py` - routines to calculate signal-to-noise ratio (SNR) for each spin and resulting average spectrum.
 
@@ -29,7 +29,8 @@ With filepaths specified, the pipeline can be run from the command line with a c
 * `wind_akr_mask_to_cdf.py` 
 
 ## Dependencies
-* `pathlib`
+* `CDF`
+* `Python` $\geq$ 3.8
 * `numpy`
 * `pandas`
 * `spacepy`
@@ -84,15 +85,11 @@ Notes and to do:
 
 * Degrees Format, Direction/Range can both be kept as default values (-dd.ddd... with 2 decimal places; Lat (-90,+90), Long(0,360) respectively)
 
-* Choose "Text" for Output Format Options
+* Choose "CDF" for Output Format Options
 
 ### Input Summary
 The data selection can be checked via the Input Summary page
 
 ### Execution Options
-Use these buttons to access the data.
-
-*For now - will need to save the ephemeris file in a place and specify the filepath specifically in calibration.py.*
-
-*Check also that the csv file saved with default text headers etc reads without trouble (as determined by the read_csv call in calibration.py)*
+Use these buttons to access the data. Save the CDF file appropriately and provide the filepath to the `wind_waves_akr_flux` program as a command line argument (see Usage instructions)
 	

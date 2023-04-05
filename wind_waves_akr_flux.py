@@ -267,11 +267,9 @@ def generate_empty_dataframe(date):
     return df
 
 
-def main(date, version='01',
-    save_calibrated_data=False, return_out=False):
-    print(date)
+def main(date, ephemeris_fp, save_calibrated_data=False, return_out=False):
 
-    datadir = '../../data/l2'
+    datadir = './'
     
     # calls waves_rad1_l2_analysis (externally)
     spin_df, invalid_dfs = process_l2(date, datadir)
@@ -284,7 +282,7 @@ def main(date, version='01',
     
     else:
         
-        flux_df = cal.calibration(spin_df, year=date.strftime('%Y'))
+        flux_df = cal.calibration(spin_df, ephemeris_fp)
         print(flux_df.columns)
         print(flux_df['FREQ'].unique().shape[0])
         
@@ -353,10 +351,10 @@ def main(date, version='01',
 
         print(out_df.columns)
 
-    out_dir = '../../data/l3/Maunder_version'
+    # out_dir = '../../data/l3/Maunder_version'
+    out_dir = './'
     
-    out_fn = 'wi_wa_rad1_l3_akr_{}_v{}.csv'.format(date.strftime('%Y%m%d'),
-        version)
+    out_fn = 'wi_wa_rad1_l3_akr_{}_v01.csv'.format(date.strftime('%Y%m%d'))
 
     keep_cols = ['datetime_ut', 'freq', 'snr_db', 'akr_flux_si_1au', 'sweep_flag']
     out_df = out_df.loc[:, keep_cols]
@@ -377,16 +375,16 @@ if __name__ == "__main__":
 
     parser.add_argument('date')
 
-    parser.add_argument('version')
+    parser.add_argument('ephemeris_fp')
 
     args = parser.parse_args()
 
     date = pd.Timestamp(args.date)
 
-    version = args.version
+    ephemeris_fp = str(args.ephemeris_fp)
 
     print(date.strftime('%d %b %Y - DOY %j'))
 
-    main(date, version, save_calibrated_data=True)
+    main(date, ephemeris_fp, save_calibrated_data=False)
     # for testing (eg background subtraction)
     # process_l2(date, '../data/wind_waves_l2_hres')

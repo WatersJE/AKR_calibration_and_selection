@@ -9,9 +9,75 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+from spacepy import pycdf
 from scipy.io.idl import readsav
 import scipy.interpolate as interpolate
+
+
+def load_cdf(filepath):
+    """
+    Specifically for use with Wind pipeline, namely calibration.
+    Using GSE latitude for scaling factor and radial distance for normalisation
+    """
+    if type(filepath) is not str:
+        cdf = pycdf.CDF(str(filepath))
+    else:
+        cdf = pycdf.CDF(filepath)
+
+    return cdf
+
+
+def interpolate_ephemeris(eph_df, datetime_label, ephemeris_resolution, interpolate_resolution,
+    eph_cols):
+    """
+    Interplates original ephemeris data in `eph_df` at `ephemeris_resolution` to
+    `interpolate_resolution`, both given in units of minutes.
+    
+    Uses `datetime_label` to
+    identify the datetimes over which to interpolate 
+
+    Set to interpolate all GSE coordinate axes, radial distance and latitude
+    """
+
+    # using integer index as 'x-value' over which to interpolate
+    #   NB can't convert directly back to datetime... unless use `interpolate_resolution`
+    eph_time = np.arange(0, len(eph_df.index), 1)
+    eph_dt = eph_df[datetime_label]
+
+    # number of new points given current and new resolution in minutes
+    n_new_points = int(eph_time.shape[0] * (ephemeris_resolution / interpolate_resolution))
+
+    # new, finer resolution time grid
+    fine_eph_time = np.linspace(eph_time.min(), eph_time.max(),
+        n_new_points)
+
+    fine_data_arr = np.zeros((len(eph_cols), n_new_points))
+    # now interpolate bounded orbit datetimes, given 12 minute resolution
+    for i, old_c in enumerate(eph_cols):
+
+        # eg interpolation
+        fine_func = interpolate.interp1d(eph_time, eph_df[old_c])
+        # fine_func = interpolate.interp1d(eph_time, eph_df[old_c], 'cubic')
+
+        fine_data = fine_func(fine_eph_time)
+
+        fine_data_arr[i, :] = fine_data
+
+    df_dict = dict()
+
+    for i, col in enumerate(eph_cols):
+        df_dict[col] = fine_data_arr[i, :]
+
+    # create new time array to append to interpolated data
+    fine_eph_dt = pd.date_range(eph_dt.min(), eph_dt.max(),
+        periods=n_new_points)
+
+    df_dict[datetime_label] = fine_eph_dt
+
+    # create all columns - then create new df with index
+    new_df = pd.DataFrame(df_dict)
+
+    return new_df
 
 
 def add_position(source_df, source_dt_label,
@@ -104,15 +170,44 @@ def calibrate_z(power, latitude):
     return flux
 
 
-def calibration(spin_df, dt_label='DATETIME_Z', year=None):
+def calibration(spin_df, filepath, dt_label='DATETIME_Z'):
+    """
+    Given a Wind ephemeris CDF file from NASA SPDF (see download
+    instructions in README), stored at `filepath`, load and interpolate relevant fields
+    (GSE latitude and radial distance) to 45s resolution and append ephemeris data to
+    L2 data in `spin_df`. 
+    """
+    
+    cdf = load_cdf(filepath) # load CDF file from given filepath
 
-    if year is None:
-        eph_data = '/data/jw27g13/ephemeris/wind_ephemeris_45s_2003.csv'
+    # check for appropriate ephemeris data (using default data labels from SPDF)
+    if ('GSE_LAT' in cdf.keys()) and ('RADIUS' in cdf.keys()):
+
+        df_dict = {
+            'Epoch': np.array(pd.Timestamp(d) for d in cdf['Epoch'][:]),
+            'GSE_LAT': np.array(cdf['RADIUS'][:]),
+            'RADIUS': np.array(cdf['GSE_LAT'][:])
+        }
+
+        df = pd.DataFrame(df_dict)
+        print(df.head())
+
     else:
-        
-        eph_data = '../../../substorm_akr_statistical_study/data/ephemeris/wind_ephemeris_45s_{}_magnetic_viewing.csv'.format(year)
-        
-    eph_df = pd.read_csv(eph_data, parse_dates=['Epoch'])
+
+        raise ValueError("Required ephemeris data not found in CDF. GSE latitude and radial distance required.")
+    
+    # include check for appropriate date range here
+    # get min/max dates for L2 data and ephemeris
+    min_l2_date, max_l2_date = spin_df['DATETIME_Z'].min(), spin_df['DATETIME_Z'].max()
+    min_eph_date, max_eph_date = df['Epoch'].min(), df['Epoch'].max()
+    # perform check, raising error if inappropriate date range
+    if (min_eph_date > min_l2_date) or (max_eph_date < max_l2_date):
+        raise ValueError("Ephemeris CDF doesn't cover appropriate time range. Ensure ephemeris covers period from {} to {}.\nEphemeris currently covers {} to {}".format(
+            min_l2_date.strftime('%d %b %Y (DOY %j) %H:%M:%S'), max_l2_date.strftime('%d %b %Y (DOY %j) %H:%M:%S'),
+            min_eph_date.strftime('%d %b %Y (DOY %j) %H:%M:%S'), max_eph_date.strftime('%d %b %Y (DOY %j) %H:%M:%S')))
+
+    # now need to interpolate data and ensure works with calibration.calibration    
+    eph_df = interpolate_ephemeris(df, 'Epoch', 12, 0.75, ['GSE_LAT', 'RADIUS'])
 
     spin_df = add_position(eph_df, 'Epoch',
         spin_df, 'DATETIME_Z', ['GSE_LAT', 'RADIUS'])
