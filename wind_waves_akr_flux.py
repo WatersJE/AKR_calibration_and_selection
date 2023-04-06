@@ -267,12 +267,10 @@ def generate_empty_dataframe(date):
     return df
 
 
-def main(date, ephemeris_fp, save_calibrated_data=False, return_out=False):
+def main(date, l2_data_dir, ephemeris_fp, l3_out_dir, save_calibrated_data=False, return_out=False):
 
-    datadir = './'
-    
     # calls waves_rad1_l2_analysis (externally)
-    spin_df, invalid_dfs = process_l2(date, datadir)
+    spin_df, invalid_dfs = process_l2(date, l2_data_dir)
     print(spin_df['FREQ'].unique().shape[0])
 
     if spin_df is None:
@@ -350,16 +348,13 @@ def main(date, ephemeris_fp, save_calibrated_data=False, return_out=False):
         out_df = select_akr(out_df, flux_label, 'akr_flux_si_1au')
 
         print(out_df.columns)
-
-    # out_dir = '../../data/l3/Maunder_version'
-    out_dir = './'
     
     out_fn = 'wi_wa_rad1_l3_akr_{}_v01.csv'.format(date.strftime('%Y%m%d'))
 
     keep_cols = ['datetime_ut', 'freq', 'snr_db', 'akr_flux_si_1au', 'sweep_flag']
     out_df = out_df.loc[:, keep_cols]
 
-    fp = os.path.join(out_dir, out_fn)
+    fp = os.path.join(l3_out_dir, out_fn)
     out_df.to_csv(fp, na_rep='-1', index=False)
 
     if return_out:
@@ -375,16 +370,24 @@ if __name__ == "__main__":
 
     parser.add_argument('date')
 
+    parser.add_argument('l2_data_directory')
+
     parser.add_argument('ephemeris_fp')
+
+    parser.add_argument('l3_data_directory')
 
     args = parser.parse_args()
 
     date = pd.Timestamp(args.date)
 
+    l2_dir = str(args.l2_data_directory)
+
     ephemeris_fp = str(args.ephemeris_fp)
+    
+    l3_dir = str(args.l3_data_directory)
 
     print(date.strftime('%d %b %Y - DOY %j'))
 
-    main(date, ephemeris_fp, save_calibrated_data=False)
+    main(date, l2_dir, ephemeris_fp, l3_dir, save_calibrated_data=False)
     # for testing (eg background subtraction)
     # process_l2(date, '../data/wind_waves_l2_hres')
