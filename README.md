@@ -6,14 +6,21 @@ The repository is self-contained, but requires Wind ephemeris data (namely GSE l
 
 ## Installation
 
-Copy the files of this GitHub repository to your local machine using the green "<> Code" dropdown button on the [repository webpage](https://github.com/WatersJE/WindWaves_AKR_calibration_selection). You can:
+Copy the files of this GitHub repository to your local machine using the green "<> Code" dropdown button on the [repository webpage](https://github.com/WatersJE/WindWaves_AKR_calibration_selection). You can either:
 * Clone the repository via HTTPS, SSH or with the GitHub CLI
 * Open the repository with the GitHub Desktop app
 * Download a ZIP file of the repository
 
 ## Usage Instructions
 
-* To do - include an example script showing basic usage in command line
+### Dependencies
+The following software and Python libraries are required to be installed to use these programs:
+* `CDF`
+* `Python` $\geq$ 3.8
+* `numpy`
+* `pandas`
+* `spacepy`
+
 Once the Wind/WAVES L2-level file(s) relevant for processing has been accessed and stored locally, as well as the ephemeris files (see **Retrieving Wind Ephemeris** below), the AKR selection program can be run by entering the following in the command line (**need to include specific files for example**):
 ``` python3 wind_waves_akr_flux.py YYYYMMDD /path/to/L2/data/directory /path/to/ephemeris/data /path/to/AKR/output/directory ```
 
@@ -25,9 +32,9 @@ Once the Wind/WAVES L2-level file(s) relevant for processing has been accessed a
 ##### Spacecraft/Time Range Selection
 * In panel "Satellites" choose Wind. Set the relevant time range (note both inclusive)
 * Note that L2 files often contain spectra that are measured in the day preceding the one labelled by the L2 file - so ephemeris data from the previous day will be required
-* for e.g. 1st Jan 2000:
-  *  Start Time: 1999/12/31
-  *  Stop Time:	2000/01/01
+* for example, processing Wind L2 data for the 1st Jan 2000 will require data spanning:
+  *  Start Time: 1999/12/31 23:00
+  *  Stop Time:	2000/01/02 00:00
 
 
 ##### Output Options
@@ -55,17 +62,8 @@ The data selection can be checked via the Input Summary page
 #### Execution Options
 Use these buttons to access the data. Save the CDF file appropriately and provide the filepath to the `wind_waves_akr_flux` program as a command line argument (see Usage instructions)
 
-### Dependencies
-The following software and Python libraries are required to be installed to use these programs:
-* `CDF`
-* `Python` $\geq$ 3.8
-* `numpy`
-* `pandas`
-* `spacepy`
-
 ## Programs
-* `wind_waves_akr_flux.py` - the main program that creates a .csv file of masked AKR data for a single L2 binary file - corresponding to a 24 hour observation. After changing relevant input (L2 binary data, ephemeris) and output (L3 .csv file) filepaths, this can be run from the terminal with the date (YYYYMMDD) and version (?) as follows:
-	`python3 wind_waves_akr_flux.py 20000101 01`
+* `wind_waves_akr_flux.py` - the main program that creates a .csv file of masked AKR data for a single L2 binary file - corresponding to a 24 hour observation.
 
 * `waves_rad1_l2_analysis.py` - data manipulation and validation routines. Mostly helper functions.
 
