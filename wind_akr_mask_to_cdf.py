@@ -10,6 +10,7 @@ from pathlib import Path
 import os
 import numpy as np 
 import pandas as pd
+import argparse
 from datetime import datetime
 
 from spacepy import pycdf
@@ -25,17 +26,31 @@ def load_csv(date, csv_dir):
 
     filename = 'wi_wa_rad1_l3_akr_{}_v01.csv'.format(
         date.strftime('%Y%m%d'))
-    filepath = os.path.join(csv_dir, filename)
+    filepath = Path(csv_dir) / filename
 
-    df = pd.read_csv(filepath, parse_dates=['datetime_ut'],
-        dtype={'akr_flux_si_1au': np.float64}, na_values='-1')
+    if not filepath.exists():
+        
+        print('The CSV file for {} does not exist at {}. No CDF file has been produced for this date.'.format(
+            date.strftime('%Y/%m/%d'), filepath
+        ))
 
-    flux_arr = ft_array(df, 'akr_flux_si_1au')
-    snr_arr = ft_array(df, 'snr_db')
-    dt_arr = np.sort(df['datetime_ut'].unique())
-    freq_arr = np.sort(df['freq'].unique())
+        load_flag = False
 
-    return dt_arr, freq_arr, flux_arr, snr_arr
+        return None, None, None, None, load_flag
+    
+    else:
+
+        df = pd.read_csv(filepath, parse_dates=['datetime_ut'],
+            dtype={'akr_flux_si_1au': np.float64}, na_values='-1')
+
+        flux_arr = ft_array(df, 'akr_flux_si_1au')
+        snr_arr = ft_array(df, 'snr_db')
+        dt_arr = np.sort(df['datetime_ut'].unique())
+        freq_arr = np.sort(df['freq'].unique())
+
+        load_flag = True
+
+        return dt_arr, freq_arr, flux_arr, snr_arr, load_flag
 
 
 def ft_array(csv_df, param_label):
@@ -186,171 +201,173 @@ def set_istp_attr(cdf, cdf_path, cdf_stem, date, version='01'):
     return cdf
 
 
-def to_cdf(date, cdf_out_path, version='01', real_fillval=-1e31):
+def to_cdf(date, cdf_out_path, csv_in_path, version='01', real_fillval=-1e31):
 
-    dtimes, freq, flux, snr = load_csv(date)
+    dtimes, freq, flux, snr, load_csv_success = load_csv(date, csv_in_path)
 
-    flux = np.where(np.isnan(flux), real_fillval, flux)
-    snr = np.where(np.isnan(snr), real_fillval, snr)
+    if load_csv_success:
 
-    cdf_filename = 'wi_wa_rad1_l3_akr_{}_v{}.cdf'.format(date.strftime('%Y%m%d'), version)
-    # with pathlib
-    # cdf_path = Path('./1999')
-    # cdf_path = cdf_path / cdf_filename
+        flux = np.where(np.isnan(flux), real_fillval, flux)
+        snr = np.where(np.isnan(snr), real_fillval, snr)
 
-    cdf_path = os.path.join(cdf_out_path, cdf_filename)
-    # print(cdf_path)
-    cdf_stem = cdf_path[-34:-4]
-    print(cdf_stem)
+        cdf_filename = 'wi_wa_rad1_l3_akr_{}_v{}.cdf'.format(date.strftime('%Y%m%d'), version)
+        # with pathlib
+        # cdf_path = Path('./1999')
+        # cdf_path = cdf_path / cdf_filename
 
-    if os.path.isfile(cdf_path):
-        os.remove(cdf_path)
+        cdf_path = os.path.join(cdf_out_path, cdf_filename)
+        # print(cdf_path)
+        cdf_stem = cdf_path[-34:-4]
+        print(cdf_stem)
 
-    # Opening CDF object
-    pycdf.lib.set_backward(False) # this is setting the CDF version to be used
+        if os.path.isfile(cdf_path):
+            os.remove(cdf_path)
 
-    cdf = pycdf.CDF(cdf_path, '')
+        # Opening CDF object
+        pycdf.lib.set_backward(False) # this is setting the CDF version to be used
 
-    # required settings for ISTP and PDS compliance
-    cdf.col_major(True)  # Column Major
-    # leave this for now
-    # cdf.compress(pycdf.const.NO_COMPRESSION)  # No file level compression   
-    
-    cdf = set_istp_attr(cdf, cdf_path, cdf_stem, date)
+        cdf = pycdf.CDF(cdf_path, '')
 
-    # SPASE
-    cdf.attrs['spase_DatasetResourceID'] = ' '
+        # required settings for ISTP and PDS compliance
+        cdf.col_major(True)  # Column Major
+        # leave this for now
+        # cdf.compress(pycdf.const.NO_COMPRESSION)  # No file level compression   
+        
+        cdf = set_istp_attr(cdf, cdf_path, cdf_stem, date)
 
-    # SETTING VESPA GLOBAL ATTRIBUTES
-    cdf.attrs['VESPA_dataproduct_type'] = 'DS>Dynamic Spectrum'
-    cdf.attrs['VESPA_target_class'] = 'planet'
-    cdf.attrs['VESPA_target_region'] = 'magnetosphere'
-    cdf.attrs['VESPA_target_name'] = 'Earth'
-    cdf.attrs['VESPA_feature_name'] = 'AKR>Auroral Kilometric Radiation'
-    cdf.attrs['VESPA_instrument_host_name'] = 'Wind'
-    cdf.attrs['VESPA_instrument_name'] = 'Waves'
-    cdf.attrs['VESPA_receiver_name'] = 'RAD1'
-    cdf.attrs['VESPA_measurement_type'] = 'phys.flux.density;em.radio'
-    cdf.attrs['VESPA_access_format'] = 'application/x-cdf'
-    cdf.attrs['VESPA_bib_reference'] = '10.1029/2021JA029425'
+        # SPASE
+        cdf.attrs['spase_DatasetResourceID'] = ' '
 
-    vespa_date_min = date.floor('D')
-    cdf.attrs['VESPA_time_min'] = vespa_date_min.strftime('%Y-%m-%dT%H:%M:%S')
-    cdf.attrs['VESPA_time_max'] = (vespa_date_min + pd.Timedelta(1, 'D')).strftime('%Y-%m-%dT%H:%M:%S')
-    cdf.attrs['VESPA_time_origin'] = 'Wind'
-    cdf.attrs['VESPA_time_scale'] = 'TT'
+        # SETTING VESPA GLOBAL ATTRIBUTES
+        cdf.attrs['VESPA_dataproduct_type'] = 'DS>Dynamic Spectrum'
+        cdf.attrs['VESPA_target_class'] = 'planet'
+        cdf.attrs['VESPA_target_region'] = 'magnetosphere'
+        cdf.attrs['VESPA_target_name'] = 'Earth'
+        cdf.attrs['VESPA_feature_name'] = 'AKR>Auroral Kilometric Radiation'
+        cdf.attrs['VESPA_instrument_host_name'] = 'Wind'
+        cdf.attrs['VESPA_instrument_name'] = 'Waves'
+        cdf.attrs['VESPA_receiver_name'] = 'RAD1'
+        cdf.attrs['VESPA_measurement_type'] = 'phys.flux.density;em.radio'
+        cdf.attrs['VESPA_access_format'] = 'application/x-cdf'
+        cdf.attrs['VESPA_bib_reference'] = '10.1029/2021JA029425'
 
-    cdf.attrs['VESPA_time_sampling_step'] = '183' # 183.0 s
-    cdf.attrs['VESPA_time_sampling_step_unit'] = 's'
+        vespa_date_min = date.floor('D')
+        cdf.attrs['VESPA_time_min'] = vespa_date_min.strftime('%Y-%m-%dT%H:%M:%S')
+        cdf.attrs['VESPA_time_max'] = (vespa_date_min + pd.Timedelta(1, 'D')).strftime('%Y-%m-%dT%H:%M:%S')
+        cdf.attrs['VESPA_time_origin'] = 'Wind'
+        cdf.attrs['VESPA_time_scale'] = 'TT'
 
-    cdf.attrs['VESPA_spectral_range_min'] = '20'
-    cdf.attrs['VESPA_spectral_range_max'] = '1040'
-    cdf.attrs['VESPA_spectral_range_unit'] = 'kHz'
-    
-    # throughout freq range, what is min/max sampling step (whether lin or log)
-    cdf.attrs['VESPA_spectral_sampling_step_min'] = '4' 
-    cdf.attrs['VESPA_spectral_sampling_step_max'] = '136'
-    cdf.attrs['VESPA_spectral_sampling_step_unit'] = 'kHz'
+        cdf.attrs['VESPA_time_sampling_step'] = '183' # 183.0 s
+        cdf.attrs['VESPA_time_sampling_step_unit'] = 's'
 
-    # SETTING VARIABLES
-    # time in datetime.datetime or pd.Timestamp if works
-    # have kept as UNIX time for now - not sure about eg 'FILLVAL' if date in datetime.datetime or pd.Timestamp etc
-    ts = (dtimes - np.datetime64('1970-01-01T00:00:00')) / np.timedelta64(1, 's')
-    time_correct_format = list(map(datetime.utcfromtimestamp, ts))
-    cdf.new('Epoch',
-            data=time_correct_format,
-            type=pycdf.const.CDF_TIME_TT2000,
-            compress=pycdf.const.NO_COMPRESSION)
-    cdf['Epoch'].attrs.new('VALIDMIN', data=time_correct_format[0], type=pycdf.const.CDF_TIME_TT2000)
-    cdf['Epoch'].attrs.new('VALIDMAX', data=time_correct_format[-1], type=pycdf.const.CDF_TIME_TT2000)
-    cdf['Epoch'].attrs.new('SCALEMIN', data=time_correct_format[0], type=pycdf.const.CDF_TIME_TT2000)
-    cdf['Epoch'].attrs.new('SCALEMAX', data=time_correct_format[-1], type=pycdf.const.CDF_TIME_TT2000)
-    cdf['Epoch'].attrs['CATDESC'] = "UTC time of each spectrum."
-    cdf['Epoch'].attrs['FIELDNAM'] = "Epoch"
-    cdf['Epoch'].attrs.new('FILLVAL', data=-9223372036854775808, type=pycdf.const.CDF_TIME_TT2000)
-    cdf['Epoch'].attrs['LABLAXIS'] = "Epoch"
-    cdf['Epoch'].attrs['UNITS'] = "ns"
-    cdf['Epoch'].attrs['FORM_PTR'] = "CDF_TIME_TT2000"
-    cdf['Epoch'].attrs['VAR_TYPE'] = "support_data"
-    cdf['Epoch'].attrs['SCALETYP'] = "linear"
-    cdf['Epoch'].attrs['MONOTON'] = "INCREASE"
-    cdf['Epoch'].attrs['REFERENCE_POSITION'] = "Earth"
-    cdf['Epoch'].attrs['SI_CONVERSION'] = "1.0e-9>s"
-    cdf['Epoch'].attrs['UCD'] = "time.epoch"
-    cdf['Epoch'].attrs['TIME_BASE'] = 'J2000'
-    cdf['Epoch'].attrs['TIME_SCALE'] = 'TT'
+        cdf.attrs['VESPA_spectral_range_min'] = '20'
+        cdf.attrs['VESPA_spectral_range_max'] = '1040'
+        cdf.attrs['VESPA_spectral_range_unit'] = 'kHz'
+        
+        # throughout freq range, what is min/max sampling step (whether lin or log)
+        cdf.attrs['VESPA_spectral_sampling_step_min'] = '4' 
+        cdf.attrs['VESPA_spectral_sampling_step_max'] = '136'
+        cdf.attrs['VESPA_spectral_sampling_step_unit'] = 'kHz'
 
-    cdf.new('Frequency',
-        data=freq,
-        type=pycdf.const.CDF_REAL4,
-        compress=pycdf.const.NO_COMPRESSION,
-        recVary=False)
-    cdf['Frequency'].attrs['CATDESC'] = "Central frequency of each step of the spectral sweep." # Central frequency of each step of the spectral sweep.
-    cdf['Frequency'].attrs['DICT_KEY'] = "frequency"
-    cdf['Frequency'].attrs['FIELDNAM'] = 'Frequency'
-    cdf['Frequency'].attrs.new('FILLVAL', data=real_fillval, type=pycdf.const.CDF_REAL4)
-    cdf['Frequency'].attrs['FORMAT'] = "E12.4"
-    cdf['Frequency'].attrs['LABLAXIS'] = 'Frequency'
-    cdf['Frequency'].attrs['UNITS'] = "kHz"
-    cdf['Frequency'].attrs.new('VALIDMIN', data=20., type=pycdf.const.CDF_REAL4)
-    cdf['Frequency'].attrs.new('VALIDMAX', data=1040., type=pycdf.const.CDF_REAL4)
-    cdf['Frequency'].attrs['VAR_TYPE'] = "support_data"
-    cdf['Frequency'].attrs['SCALETYP'] = "linear"
-    cdf['Frequency'].attrs.new('SCALEMIN', data=20., type=pycdf.const.CDF_REAL4)
-    cdf['Frequency'].attrs.new('SCALEMAX', data=1040., type=pycdf.const.CDF_REAL4)
-    cdf['Frequency'].attrs['UCD'] = "em.freq"
-    cdf['Frequency'].attrs['SI_CONVERSION'] = "1.0e3>Hz"
+        # SETTING VARIABLES
+        # time in datetime.datetime or pd.Timestamp if works
+        # have kept as UNIX time for now - not sure about eg 'FILLVAL' if date in datetime.datetime or pd.Timestamp etc
+        ts = (dtimes - np.datetime64('1970-01-01T00:00:00')) / np.timedelta64(1, 's')
+        time_correct_format = list(map(datetime.utcfromtimestamp, ts))
+        cdf.new('Epoch',
+                data=time_correct_format,
+                type=pycdf.const.CDF_TIME_TT2000,
+                compress=pycdf.const.NO_COMPRESSION)
+        cdf['Epoch'].attrs.new('VALIDMIN', data=time_correct_format[0], type=pycdf.const.CDF_TIME_TT2000)
+        cdf['Epoch'].attrs.new('VALIDMAX', data=time_correct_format[-1], type=pycdf.const.CDF_TIME_TT2000)
+        cdf['Epoch'].attrs.new('SCALEMIN', data=time_correct_format[0], type=pycdf.const.CDF_TIME_TT2000)
+        cdf['Epoch'].attrs.new('SCALEMAX', data=time_correct_format[-1], type=pycdf.const.CDF_TIME_TT2000)
+        cdf['Epoch'].attrs['CATDESC'] = "UTC time of each spectrum."
+        cdf['Epoch'].attrs['FIELDNAM'] = "Epoch"
+        cdf['Epoch'].attrs.new('FILLVAL', data=-9223372036854775808, type=pycdf.const.CDF_TIME_TT2000)
+        cdf['Epoch'].attrs['LABLAXIS'] = "Epoch"
+        cdf['Epoch'].attrs['UNITS'] = "ns"
+        cdf['Epoch'].attrs['FORM_PTR'] = "CDF_TIME_TT2000"
+        cdf['Epoch'].attrs['VAR_TYPE'] = "support_data"
+        cdf['Epoch'].attrs['SCALETYP'] = "linear"
+        cdf['Epoch'].attrs['MONOTON'] = "INCREASE"
+        cdf['Epoch'].attrs['REFERENCE_POSITION'] = "Earth"
+        cdf['Epoch'].attrs['SI_CONVERSION'] = "1.0e-9>s"
+        cdf['Epoch'].attrs['UCD'] = "time.epoch"
+        cdf['Epoch'].attrs['TIME_BASE'] = 'J2000'
+        cdf['Epoch'].attrs['TIME_SCALE'] = 'TT'
 
-    # modify to flux density
-    cdf.new('FLUX_DENSITY',
-            data=flux.T,
+        cdf.new('Frequency',
+            data=freq,
             type=pycdf.const.CDF_REAL4,
-            compress=pycdf.const.NO_COMPRESSION)
-    cdf['FLUX_DENSITY'].attrs['CATDESC'] = "Flux density spectrogram measured on the Wind/WAVES spin-axis Z antenna." 
-    cdf['FLUX_DENSITY'].attrs['DEPEND_0'] = 'Epoch'
-    cdf['FLUX_DENSITY'].attrs['DEPEND_1'] = 'Frequency'
-    cdf['FLUX_DENSITY'].attrs['DICT_KEY'] = 'electric_field>power'
-    cdf['FLUX_DENSITY'].attrs['DISPLAY_TYPE'] = 'spectrogram'
-    cdf['FLUX_DENSITY'].attrs['FIELDNAM'] = 'FLUX_DENSITY'
-    cdf['FLUX_DENSITY'].attrs.new('FILLVAL', data=real_fillval, type=pycdf.const.CDF_REAL4)
-    cdf['FLUX_DENSITY'].attrs['FORMAT'] = "E12.4"
-    cdf['FLUX_DENSITY'].attrs['LABLAXIS'] = 'Flux Density @ 1AU'
-    cdf['FLUX_DENSITY'].attrs['UNITS'] = 'Wm2Hz-1'
-    cdf['FLUX_DENSITY'].attrs.new('VALIDMIN', data=1e-30, type=pycdf.const.CDF_REAL4)
-    cdf['FLUX_DENSITY'].attrs.new('VALIDMAX', data=1e-15, type=pycdf.const.CDF_REAL4)
-    cdf['FLUX_DENSITY'].attrs['VAR_TYPE'] = "data"
-    cdf['FLUX_DENSITY'].attrs['SCALETYP'] = "log"
-    # get relevant min/max flux
-    cdf['FLUX_DENSITY'].attrs.new('SCALEMIN', data=1.69e-26, type=pycdf.const.CDF_REAL4)
-    cdf['FLUX_DENSITY'].attrs.new('SCALEMAX', data=2.4e-18, type=pycdf.const.CDF_REAL4)
-    cdf['FLUX_DENSITY'].attrs['UCD'] = "phys.flux.density;em.radio"
+            compress=pycdf.const.NO_COMPRESSION,
+            recVary=False)
+        cdf['Frequency'].attrs['CATDESC'] = "Central frequency of each step of the spectral sweep." # Central frequency of each step of the spectral sweep.
+        cdf['Frequency'].attrs['DICT_KEY'] = "frequency"
+        cdf['Frequency'].attrs['FIELDNAM'] = 'Frequency'
+        cdf['Frequency'].attrs.new('FILLVAL', data=real_fillval, type=pycdf.const.CDF_REAL4)
+        cdf['Frequency'].attrs['FORMAT'] = "E12.4"
+        cdf['Frequency'].attrs['LABLAXIS'] = 'Frequency'
+        cdf['Frequency'].attrs['UNITS'] = "kHz"
+        cdf['Frequency'].attrs.new('VALIDMIN', data=20., type=pycdf.const.CDF_REAL4)
+        cdf['Frequency'].attrs.new('VALIDMAX', data=1040., type=pycdf.const.CDF_REAL4)
+        cdf['Frequency'].attrs['VAR_TYPE'] = "support_data"
+        cdf['Frequency'].attrs['SCALETYP'] = "linear"
+        cdf['Frequency'].attrs.new('SCALEMIN', data=20., type=pycdf.const.CDF_REAL4)
+        cdf['Frequency'].attrs.new('SCALEMAX', data=1040., type=pycdf.const.CDF_REAL4)
+        cdf['Frequency'].attrs['UCD'] = "em.freq"
+        cdf['Frequency'].attrs['SI_CONVERSION'] = "1.0e3>Hz"
 
-    # modify to SNR
-    cdf.new('SNR',
-            data=snr.T,
-            type=pycdf.const.CDF_REAL4,
-            compress=pycdf.const.NO_COMPRESSION)
-    cdf['SNR'].attrs['CATDESC'] = "SNR spectrogram measured on the Wind/WAVES spin-axis Z antenna using 24 hr 5% background."
-    cdf['SNR'].attrs['DEPEND_0'] = 'Epoch'
-    cdf['SNR'].attrs['DEPEND_1'] = 'Frequency'
-    cdf['SNR'].attrs['DICT_KEY'] = 'electric_field>power'
-    cdf['SNR'].attrs['DISPLAY_TYPE'] = 'spectrogram'
-    cdf['SNR'].attrs['FIELDNAM'] = 'SNR'
-    cdf['SNR'].attrs.new('FILLVAL', data=real_fillval, type=pycdf.const.CDF_REAL4)
-    cdf['SNR'].attrs['FORMAT'] = "E12.4"
-    cdf['SNR'].attrs['LABLAXIS'] = 'SNR'
-    cdf['SNR'].attrs['UNITS'] = 'dB'
-    # check sensible valid min/max limits
-    cdf['SNR'].attrs.new('VALIDMIN', data=10, type=pycdf.const.CDF_REAL4)
-    cdf['SNR'].attrs.new('VALIDMAX', data=100, type=pycdf.const.CDF_REAL4)
-    cdf['SNR'].attrs['VAR_TYPE'] = "support_data"
-    cdf['SNR'].attrs['SCALETYP'] = "linear"
-    # get min/max limits
-    cdf['SNR'].attrs.new('SCALEMIN', data=16, type=pycdf.const.CDF_REAL4)
-    cdf['SNR'].attrs.new('SCALEMAX', data=84, type=pycdf.const.CDF_REAL4)
-    cdf['SNR'].attrs['UCD'] = "stat.snr;phys.flux.density;em.radio"
+        # modify to flux density
+        cdf.new('FLUX_DENSITY',
+                data=flux.T,
+                type=pycdf.const.CDF_REAL4,
+                compress=pycdf.const.NO_COMPRESSION)
+        cdf['FLUX_DENSITY'].attrs['CATDESC'] = "Flux density spectrogram measured on the Wind/WAVES spin-axis Z antenna." 
+        cdf['FLUX_DENSITY'].attrs['DEPEND_0'] = 'Epoch'
+        cdf['FLUX_DENSITY'].attrs['DEPEND_1'] = 'Frequency'
+        cdf['FLUX_DENSITY'].attrs['DICT_KEY'] = 'electric_field>power'
+        cdf['FLUX_DENSITY'].attrs['DISPLAY_TYPE'] = 'spectrogram'
+        cdf['FLUX_DENSITY'].attrs['FIELDNAM'] = 'FLUX_DENSITY'
+        cdf['FLUX_DENSITY'].attrs.new('FILLVAL', data=real_fillval, type=pycdf.const.CDF_REAL4)
+        cdf['FLUX_DENSITY'].attrs['FORMAT'] = "E12.4"
+        cdf['FLUX_DENSITY'].attrs['LABLAXIS'] = 'Flux Density @ 1AU'
+        cdf['FLUX_DENSITY'].attrs['UNITS'] = 'Wm2Hz-1'
+        cdf['FLUX_DENSITY'].attrs.new('VALIDMIN', data=1e-30, type=pycdf.const.CDF_REAL4)
+        cdf['FLUX_DENSITY'].attrs.new('VALIDMAX', data=1e-15, type=pycdf.const.CDF_REAL4)
+        cdf['FLUX_DENSITY'].attrs['VAR_TYPE'] = "data"
+        cdf['FLUX_DENSITY'].attrs['SCALETYP'] = "log"
+        # get relevant min/max flux
+        cdf['FLUX_DENSITY'].attrs.new('SCALEMIN', data=1.69e-26, type=pycdf.const.CDF_REAL4)
+        cdf['FLUX_DENSITY'].attrs.new('SCALEMAX', data=2.4e-18, type=pycdf.const.CDF_REAL4)
+        cdf['FLUX_DENSITY'].attrs['UCD'] = "phys.flux.density;em.radio"
 
-    cdf.close()
+        # modify to SNR
+        cdf.new('SNR',
+                data=snr.T,
+                type=pycdf.const.CDF_REAL4,
+                compress=pycdf.const.NO_COMPRESSION)
+        cdf['SNR'].attrs['CATDESC'] = "SNR spectrogram measured on the Wind/WAVES spin-axis Z antenna using 24 hr 5% background."
+        cdf['SNR'].attrs['DEPEND_0'] = 'Epoch'
+        cdf['SNR'].attrs['DEPEND_1'] = 'Frequency'
+        cdf['SNR'].attrs['DICT_KEY'] = 'electric_field>power'
+        cdf['SNR'].attrs['DISPLAY_TYPE'] = 'spectrogram'
+        cdf['SNR'].attrs['FIELDNAM'] = 'SNR'
+        cdf['SNR'].attrs.new('FILLVAL', data=real_fillval, type=pycdf.const.CDF_REAL4)
+        cdf['SNR'].attrs['FORMAT'] = "E12.4"
+        cdf['SNR'].attrs['LABLAXIS'] = 'SNR'
+        cdf['SNR'].attrs['UNITS'] = 'dB'
+        # check sensible valid min/max limits
+        cdf['SNR'].attrs.new('VALIDMIN', data=10, type=pycdf.const.CDF_REAL4)
+        cdf['SNR'].attrs.new('VALIDMAX', data=100, type=pycdf.const.CDF_REAL4)
+        cdf['SNR'].attrs['VAR_TYPE'] = "support_data"
+        cdf['SNR'].attrs['SCALETYP'] = "linear"
+        # get min/max limits
+        cdf['SNR'].attrs.new('SCALEMIN', data=16, type=pycdf.const.CDF_REAL4)
+        cdf['SNR'].attrs.new('SCALEMAX', data=84, type=pycdf.const.CDF_REAL4)
+        cdf['SNR'].attrs['UCD'] = "stat.snr;phys.flux.density;em.radio"
+
+        cdf.close()
 
     return None
 
@@ -363,16 +380,19 @@ if __name__ == "__main__":
 
     parser.add_argument('date1')
 
-    parser.add_argument('csv_path')
+    parser.add_argument('cdf_out_path')
+
+    parser.add_argument('csv_in_path')
 
     args = parser.parse_args()
 
     date0 = pd.Timestamp(args.date0)
     date1 = pd.Timestamp(args.date1)
-    csv_path = str(args.csv_path)
+    cdf_path = str(args.cdf_out_path)
+    csv_path = str(args.csv_in_path)
 
     dates = pd.date_range(date0, date1, freq='D')
 
     for d in dates:
 
-        to_cdf(d, csv_path)
+        to_cdf(d, cdf_path, csv_path)

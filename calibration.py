@@ -185,8 +185,8 @@ def calibration(spin_df, filepath, dt_label='DATETIME_Z'):
 
         df_dict = {
             'Epoch': np.array(pd.Timestamp(d) for d in cdf['Epoch'][:]),
-            'GSE_LAT': np.array(cdf['RADIUS'][:]),
-            'RADIUS': np.array(cdf['GSE_LAT'][:])
+            'GSE_LAT': np.array(cdf['GSE_LAT'][:]),
+            'RADIUS': np.array(cdf['RADIUS'][:])
         }
 
         df = pd.DataFrame(df_dict)
