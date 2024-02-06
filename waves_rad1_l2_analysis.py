@@ -426,8 +426,8 @@ def concat_l2_sweeps(l2_object, n_sw, log_filename=None, date=None):
             freqs = np.sort(sweep_dict['data']['FREQ'].unique())
     
         else:
-            print(freqs)
             freqs = np.loadtxt('default_freq_list.txt')
+            print(freqs)
             # dfs[i] = None
             dfs[i] = invalid_sweep_header_dataframe(i,
                 sweep_dict['start_date'], freqs)
